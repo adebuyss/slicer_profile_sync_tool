@@ -91,8 +91,10 @@ def rebuild_exported_from_git(cfg: Config) -> list[tuple[Path, Path]]:
         return []
 
     result: list[tuple[Path, Path]] = []
-    for line in status.strip().splitlines():
+    for line in status.splitlines():
         # porcelain format: "XY path" (first 3 chars are status + space)
+        # Note: do NOT strip the line — the leading space in column 1
+        # is significant (it means "not staged").
         if len(line) < 4:
             continue
         status_code = line[:2]

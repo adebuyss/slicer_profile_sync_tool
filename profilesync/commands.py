@@ -234,11 +234,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
     run(["git", "fetch", "origin"], cwd=cfg.repo_dir, check=False)
 
-    # 2) Export current slicer state to see what changed
-    exported = export_from_slicers_to_repo(cfg)
-    # If nothing new was exported, check for uncommitted changes from a previous run
-    if not exported:
-        exported = rebuild_exported_from_git(cfg)
+    # 2) Export current slicer state into the repo working tree, then
+    #    read *all* uncommitted differences (not just what this call copied)
+    export_from_slicers_to_repo(cfg)
+    exported = rebuild_exported_from_git(cfg)
 
     # 3) Launch the interactive TUI
     from .tui import SyncApp, build_status_text

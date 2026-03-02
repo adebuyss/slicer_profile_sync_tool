@@ -696,9 +696,8 @@ class MainScreen(SyncScreen):
     @work(thread=True)
     def _do_refresh(self) -> None:
         cfg = self.sync_app.cfg
-        exported = export_from_slicers_to_repo(cfg)
-        if not exported:
-            exported = rebuild_exported_from_git(cfg)
+        export_from_slicers_to_repo(cfg)
+        exported = rebuild_exported_from_git(cfg)
         self.sync_app.exported = exported
         self.sync_app.refresh_status()
         self.sync_app.call_from_thread(
@@ -962,10 +961,9 @@ class PushScreen(SyncScreen):
 
     @work(thread=True, exclusive=True)
     def _refresh_after_push(self) -> None:
-        # Re-export to detect any remaining unpushed changes
-        exported = export_from_slicers_to_repo(self.sync_app.cfg)
-        if not exported:
-            exported = rebuild_exported_from_git(self.sync_app.cfg)
+        # Re-export and rebuild full uncommitted list
+        export_from_slicers_to_repo(self.sync_app.cfg)
+        exported = rebuild_exported_from_git(self.sync_app.cfg)
         self.sync_app.exported = exported
         self.sync_app.call_from_thread(self.sync_app.refresh_status)
         self.sync_app.call_from_thread(self.sync_app.pop_screen)
@@ -1298,9 +1296,8 @@ class PullScreen(SyncScreen):
                 run(["git", "stash", "drop"],
                     cwd=self.sync_app.cfg.repo_dir, check=False)
                 self._had_stash = False
-            exported = export_from_slicers_to_repo(self.sync_app.cfg)
-            if not exported:
-                exported = rebuild_exported_from_git(self.sync_app.cfg)
+            export_from_slicers_to_repo(self.sync_app.cfg)
+            exported = rebuild_exported_from_git(self.sync_app.cfg)
             self.sync_app.exported = exported
 
             # Refresh main screen status after pull
