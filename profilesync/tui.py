@@ -737,6 +737,18 @@ class PushScreen(SyncScreen):
         title.append("  (all selected by default)", style="dim")
         yield Static(title, id="screen-title")
 
+        # Determine which repo files are already committed at HEAD
+        cfg = self.sync_app.cfg
+        result = run(
+            ["git", "ls-tree", "-r", "--name-only", "HEAD", "--",
+             str(REPO_PROFILES_DIR)],
+            cwd=cfg.repo_dir, check=False,
+        )
+        self._committed: set[str] = (
+            set(result.stdout.splitlines())
+            if result.returncode == 0 else set()
+        )
+
         # Use integer indices as values (must be hashable)
         selections: list[tuple[Text, int, bool]] = []
         for i, (src, dst) in enumerate(self.sync_app.exported):
@@ -770,7 +782,14 @@ class PushScreen(SyncScreen):
             label.append(dst.name, style="red")
             label.append(" [DELETE]", style="bold red")
         else:
-            label.append(dst.name)
+            try:
+                rel_repo = str(dst.relative_to(cfg.repo_dir))
+            except ValueError:
+                rel_repo = ""
+            is_new = rel_repo not in self._committed
+            label.append(dst.name, style="green" if is_new else "")
+            if is_new:
+                label.append(" [NEW]", style="bold green")
         return label
 
     # ── events ───────────────────────────────────────────────────────────
