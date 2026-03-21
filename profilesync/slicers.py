@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,78 @@ def _detect_user_dirs(base: Path) -> list[Path]:
     return sorted(found, key=lambda p: p.name)
 
 
+# ---- Portable data_dir detection ------------------------------------------------
+
+# Map slicer keys to their executable names for shutil.which() lookup
+_SLICER_EXECUTABLES: dict[str, list[str]] = {
+    "orcaslicer": ["orca-slicer", "OrcaSlicer"],
+    "bambustudio": ["bambu-studio", "BambuStudio"],
+    "snapmakerorca": ["snapmaker-orca-slicer", "SnapmakerOrcaSlicer"],
+    "elegooslicer": ["elegoo-slicer", "ElegooSlicer"],
+}
+
+# Common install directories per platform
+_WINDOWS_INSTALL_DIRS: dict[str, list[str]] = {
+    "orcaslicer": ["OrcaSlicer"],
+    "bambustudio": ["BambuStudio"],
+    "snapmakerorca": ["SnapmakerOrcaSlicer"],
+    "elegooslicer": ["ElegooSlicer"],
+}
+
+_MACOS_APP_NAMES: dict[str, list[str]] = {
+    "orcaslicer": ["OrcaSlicer.app"],
+    "bambustudio": ["BambuStudio.app"],
+    "snapmakerorca": ["SnapmakerOrcaSlicer.app"],
+    "elegooslicer": ["ElegooSlicer.app"],
+}
+
+
+def _detect_data_dir(slicer_key: str) -> list[Path]:
+    """
+    Detect portable data_dir folders for a slicer.
+
+    OrcaSlicer (and forks) support a portable mode where a folder named
+    'data_dir' placed next to the executable is used instead of the
+    standard config location.  This function checks:
+      1. Common install paths per platform
+      2. The executable found via PATH (shutil.which)
+
+    Returns user dirs found inside any discovered data_dir, or [].
+    """
+    candidates: list[Path] = []
+    system = platform.system()
+
+    if system == "Windows":
+        # Check Program Files directories
+        for pf in ["PROGRAMFILES", "PROGRAMFILES(X86)"]:
+            pf_path = os.getenv(pf)
+            if not pf_path:
+                continue
+            for dirname in _WINDOWS_INSTALL_DIRS.get(slicer_key, []):
+                candidates.append(Path(pf_path) / dirname)
+
+    elif system == "Darwin":
+        # Check /Applications/<App>.app/Contents/MacOS/
+        for app_name in _MACOS_APP_NAMES.get(slicer_key, []):
+            candidates.append(
+                Path("/Applications") / app_name / "Contents" / "MacOS")
+
+    # All platforms: check executable on PATH
+    for exe_name in _SLICER_EXECUTABLES.get(slicer_key, []):
+        exe_path = shutil.which(exe_name)
+        if exe_path:
+            candidates.append(Path(exe_path).resolve().parent)
+
+    # Look for data_dir/user/<numeric_id>/ in each candidate
+    for candidate in candidates:
+        data_dir = candidate / "data_dir"
+        user_dirs = _detect_user_dirs(data_dir)
+        if user_dirs:
+            return user_dirs
+
+    return []
+
+
 def _detect_creality_version(app_support: Path) -> list[Path]:
     """
     Detect Creality Print installation directory.
@@ -67,6 +140,7 @@ def _detect_creality_version(app_support: Path) -> list[Path]:
 def _macos_default_slicers() -> list[Slicer]:
     """
     macOS slicer profile locations (auto-detect numeric user_id subdirs).
+    Checks portable data_dir first, then standard Application Support paths.
     """
     home = Path.home()
     app_support = home / "Library" / "Application Support"
@@ -81,11 +155,12 @@ def _macos_default_slicers() -> list[Slicer]:
     # Elegoo Slicer (based on OrcaSlicer)
     elegoo_base = app_support / "ElegooSlicer"
 
-    orca_dirs = _detect_user_dirs(orca_base)
-    snapmaker_dirs = _detect_user_dirs(snapmaker_base)
-    bambu_dirs = _detect_user_dirs(bambu_base)
+    # Check portable data_dir first, then standard paths
+    orca_dirs = _detect_data_dir("orcaslicer") or _detect_user_dirs(orca_base)
+    snapmaker_dirs = _detect_data_dir("snapmakerorca") or _detect_user_dirs(snapmaker_base)
+    bambu_dirs = _detect_data_dir("bambustudio") or _detect_user_dirs(bambu_base)
     creality_dirs = _detect_creality_version(app_support)
-    elegoo_dirs = _detect_user_dirs(elegoo_base)
+    elegoo_dirs = _detect_data_dir("elegooslicer") or _detect_user_dirs(elegoo_base)
 
     return [
         Slicer(
@@ -124,7 +199,7 @@ def _macos_default_slicers() -> list[Slicer]:
 def _linux_default_slicers() -> list[Slicer]:
     """
     Linux slicer profile locations.
-    Checks both native (~/.config/) and Flatpak paths.
+    Checks portable data_dir first, then native (~/.config/), then Flatpak paths.
     """
     home = Path.home()
     config_dir = home / ".config"
@@ -138,12 +213,21 @@ def _linux_default_slicers() -> list[Slicer]:
 
     # Flatpak paths
     flatpak_orca_base = flatpak_dir / "io.github.softfever.OrcaSlicer" / "config" / "OrcaSlicer"
+    flatpak_bambu_base = flatpak_dir / "com.bambulab.BambuStudio" / "config" / "BambuStudio"
 
-    # Detect user dirs from both native and Flatpak locations
-    orca_dirs = _detect_user_dirs(orca_base) or _detect_user_dirs(flatpak_orca_base)
-    snapmaker_dirs = _detect_user_dirs(snapmaker_base)
-    bambu_dirs = _detect_user_dirs(bambu_base)
-    elegoo_dirs = _detect_user_dirs(elegoo_base)
+    # Check portable data_dir first, then native, then Flatpak
+    orca_dirs = (
+        _detect_data_dir("orcaslicer")
+        or _detect_user_dirs(orca_base)
+        or _detect_user_dirs(flatpak_orca_base)
+    )
+    snapmaker_dirs = _detect_data_dir("snapmakerorca") or _detect_user_dirs(snapmaker_base)
+    bambu_dirs = (
+        _detect_data_dir("bambustudio")
+        or _detect_user_dirs(bambu_base)
+        or _detect_user_dirs(flatpak_bambu_base)
+    )
+    elegoo_dirs = _detect_data_dir("elegooslicer") or _detect_user_dirs(elegoo_base)
 
     # Creality Print on Linux
     creality_base = config_dir / "Creality" / "Creality Print"
@@ -212,10 +296,11 @@ def _windows_default_slicers() -> list[Slicer]:
     # Typically in %APPDATA%\Creality\Creality Print\7.0
     creality_base = appdata / "Creality" / "Creality Print"
 
-    orca_dirs = _detect_user_dirs(orca_base)
-    snapmaker_dirs = _detect_user_dirs(snapmaker_base)
-    bambu_dirs = _detect_user_dirs(bambu_base)
-    elegoo_dirs = _detect_user_dirs(elegoo_base)
+    # Check portable data_dir first, then standard AppData paths
+    orca_dirs = _detect_data_dir("orcaslicer") or _detect_user_dirs(orca_base)
+    snapmaker_dirs = _detect_data_dir("snapmakerorca") or _detect_user_dirs(snapmaker_base)
+    bambu_dirs = _detect_data_dir("bambustudio") or _detect_user_dirs(bambu_base)
+    elegoo_dirs = _detect_data_dir("elegooslicer") or _detect_user_dirs(elegoo_base)
 
     # Detect Creality Print version on Windows
     creality_dirs = []
