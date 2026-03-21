@@ -121,6 +121,73 @@ def _macos_default_slicers() -> list[Slicer]:
     ]
 
 
+def _linux_default_slicers() -> list[Slicer]:
+    """
+    Linux slicer profile locations.
+    Checks both native (~/.config/) and Flatpak paths.
+    """
+    home = Path.home()
+    config_dir = home / ".config"
+    flatpak_dir = home / ".var" / "app"
+
+    # Native paths under ~/.config/
+    orca_base = config_dir / "OrcaSlicer"
+    snapmaker_base = config_dir / "SnapmakerOrcaSlicer"
+    bambu_base = config_dir / "BambuStudio"
+    elegoo_base = config_dir / "ElegooSlicer"
+
+    # Flatpak paths
+    flatpak_orca_base = flatpak_dir / "io.github.softfever.OrcaSlicer" / "config" / "OrcaSlicer"
+
+    # Detect user dirs from both native and Flatpak locations
+    orca_dirs = _detect_user_dirs(orca_base) or _detect_user_dirs(flatpak_orca_base)
+    snapmaker_dirs = _detect_user_dirs(snapmaker_base)
+    bambu_dirs = _detect_user_dirs(bambu_base)
+    elegoo_dirs = _detect_user_dirs(elegoo_base)
+
+    # Creality Print on Linux
+    creality_base = config_dir / "Creality" / "Creality Print"
+    creality_dirs = []
+    for version in ["7.0", "6.0"]:
+        version_dir = creality_base / version
+        if version_dir.exists():
+            creality_dirs = [version_dir]
+            break
+
+    return [
+        Slicer(
+            key="orcaslicer",
+            display="Orca Slicer",
+            default_profile_dirs=orca_dirs if orca_dirs else [
+                orca_base / "user" / "default"],
+        ),
+        Slicer(
+            key="bambustudio",
+            display="Bambu Studio",
+            default_profile_dirs=bambu_dirs if bambu_dirs else [
+                bambu_base / "user" / "default"],
+        ),
+        Slicer(
+            key="snapmakerorca",
+            display="Snapmaker Orca",
+            default_profile_dirs=snapmaker_dirs if snapmaker_dirs else [
+                snapmaker_base / "user" / "default"],
+        ),
+        Slicer(
+            key="crealityprint",
+            display="Creality Print",
+            default_profile_dirs=creality_dirs if creality_dirs else [
+                creality_base / "7.0"],
+        ),
+        Slicer(
+            key="elegooslicer",
+            display="Elegoo Slicer",
+            default_profile_dirs=elegoo_dirs if elegoo_dirs else [
+                elegoo_base / "user" / "default"],
+        ),
+    ]
+
+
 def _windows_default_slicers() -> list[Slicer]:
     """
     Windows slicer profile locations (auto-detect numeric user_id subdirs).
@@ -202,7 +269,4 @@ def get_default_slicers() -> list[Slicer]:
     elif system == "Windows":
         return _windows_default_slicers()
     else:  # Linux or other Unix-like
-        # Linux paths are similar to macOS but in ~/.config or ~/.local/share
-        # For now, use macOS-like paths as a fallback
-        # TODO: Add proper Linux support
-        return _macos_default_slicers()
+        return _linux_default_slicers()
