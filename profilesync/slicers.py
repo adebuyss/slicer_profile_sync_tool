@@ -32,9 +32,9 @@ class Slicer:
 
 def _detect_user_dirs(base: Path) -> list[Path]:
     """
-    Find numeric user_id subdirectories under base/user/.
-    e.g. ~/Library/Application Support/BambuStudio/user/12345/
-    Returns sorted list of discovered user dirs.
+    Find user subdirectories under base/user/.
+    Matches numeric user IDs (e.g. 12345) and 'default' (logged-out profile).
+    Returns sorted list of discovered user dirs (numeric first, then 'default').
     """
     user_root = base / "user"
     if not user_root.exists():
@@ -42,9 +42,10 @@ def _detect_user_dirs(base: Path) -> list[Path]:
 
     found = []
     for entry in user_root.iterdir():
-        if entry.is_dir() and entry.name.isdigit():
+        if entry.is_dir() and (entry.name.isdigit() or entry.name == "default"):
             found.append(entry)
-    return sorted(found, key=lambda p: p.name)
+    # Sort numeric IDs first, then "default"
+    return sorted(found, key=lambda p: (not p.name.isdigit(), p.name))
 
 
 def _unique_dirs(*sources: list[Path]) -> list[Path]:
