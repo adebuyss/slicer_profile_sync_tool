@@ -1147,12 +1147,10 @@ class PullScreen(SyncScreen):
 
     def _build_profile_list(self) -> None:
         """(Re)build the SelectionList based on the current filter."""
-        # Remove existing widgets if rebuilding
+        # Remove existing widgets if rebuilding (query returns all matches)
         for wid in ("#file-list", "#no-results", "#select-status"):
-            try:
-                self.query_one(wid).remove()
-            except Exception:
-                pass
+            for widget in self.query(wid):
+                widget.remove()
 
         # Filter profiles
         if self._show_all:
