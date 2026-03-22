@@ -106,6 +106,14 @@ def validate_git_remote(remote: str) -> tuple[bool, str]:
     return True, ""
 
 
+def configure_git_user(repo_dir: Path, name: Optional[str], email: Optional[str]) -> None:
+    """Set local git user.name and user.email on the sync repo."""
+    if name:
+        run(["git", "config", "user.name", name], cwd=repo_dir)
+    if email:
+        run(["git", "config", "user.email", email], cwd=repo_dir)
+
+
 def clone_or_open_repo(repo_dir: Path, remote: str) -> None:
     """Clone repository or ensure existing one has correct remote."""
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
