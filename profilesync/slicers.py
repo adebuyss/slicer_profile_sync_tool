@@ -30,6 +30,12 @@ class Slicer:
     default_profile_dirs: list[Path]  # user may override
 
 
+# Profile file patterns per slicer.  Slicers not listed here default to *.json.
+SLICER_PROFILE_GLOBS: dict[str, list[str]] = {
+    "prusaslicer": ["*.ini"],
+}
+
+
 def _detect_user_dirs(base: Path) -> list[Path]:
     """
     Find user subdirectories under base/user/.
@@ -69,6 +75,7 @@ _SLICER_EXECUTABLES: dict[str, list[str]] = {
     "bambustudio": ["bambu-studio", "BambuStudio"],
     "snapmakerorca": ["snapmaker-orca-slicer", "SnapmakerOrcaSlicer"],
     "elegooslicer": ["elegoo-slicer", "ElegooSlicer"],
+    "prusaslicer": ["prusa-slicer", "PrusaSlicer"],
 }
 
 # Common install directories per platform
@@ -77,6 +84,7 @@ _WINDOWS_INSTALL_DIRS: dict[str, list[str]] = {
     "bambustudio": ["BambuStudio"],
     "snapmakerorca": ["SnapmakerOrcaSlicer"],
     "elegooslicer": ["ElegooSlicer"],
+    "prusaslicer": ["PrusaSlicer"],
 }
 
 _MACOS_APP_NAMES: dict[str, list[str]] = {
@@ -84,6 +92,7 @@ _MACOS_APP_NAMES: dict[str, list[str]] = {
     "bambustudio": ["BambuStudio.app"],
     "snapmakerorca": ["SnapmakerOrcaSlicer.app"],
     "elegooslicer": ["ElegooSlicer.app"],
+    "prusaslicer": ["PrusaSlicer.app", "Original Prusa Drivers.app"],
 }
 
 # Flatpak app IDs (Linux only) — multiple IDs per slicer supported
@@ -95,6 +104,9 @@ _FLATPAK_IDS: dict[str, list[tuple[str, str]]] = {
     ],
     "bambustudio": [
         ("com.bambulab.BambuStudio", "BambuStudio"),
+    ],
+    "prusaslicer": [
+        ("com.prusa3d.PrusaSlicer", "PrusaSlicer"),
     ],
 }
 
@@ -154,6 +166,17 @@ def _detect_flatpak_dirs(slicer_key: str) -> list[Path]:
     return all_dirs
 
 
+def _detect_prusaslicer_flatpak(slicer_key: str) -> list[Path]:
+    """Detect PrusaSlicer config dir inside Flatpak (no user/<id>/ subdirs)."""
+    entries = _FLATPAK_IDS.get(slicer_key, [])
+    dirs: list[Path] = []
+    for app_id, config_name in entries:
+        candidate = Path.home() / ".var" / "app" / app_id / "config" / config_name
+        if candidate.exists():
+            dirs.append(candidate)
+    return dirs
+
+
 def _detect_creality_version(app_support: Path) -> list[Path]:
     """
     Detect Creality Print installation directory.
@@ -203,6 +226,9 @@ def _macos_default_slicers() -> list[Slicer]:
         _detect_data_dir("elegooslicer"),
     )
 
+    prusa_base = app_support / "PrusaSlicer"
+    prusa_dirs = [prusa_base] if prusa_base.exists() else []
+
     return [
         Slicer(
             key="orcaslicer",
@@ -233,6 +259,11 @@ def _macos_default_slicers() -> list[Slicer]:
             display="Elegoo Slicer",
             default_profile_dirs=elegoo_dirs if elegoo_dirs else [
                 elegoo_base / "user" / "default"],
+        ),
+        Slicer(
+            key="prusaslicer",
+            display="PrusaSlicer",
+            default_profile_dirs=prusa_dirs if prusa_dirs else [prusa_base],
         ),
     ]
 
@@ -278,6 +309,12 @@ def _linux_default_slicers() -> list[Slicer]:
             creality_dirs = [version_dir]
             break
 
+    prusa_base = config_dir / "PrusaSlicer"
+    prusa_dirs = _unique_dirs(
+        [prusa_base] if prusa_base.exists() else [],
+        _detect_prusaslicer_flatpak("prusaslicer"),
+    )
+
     return [
         Slicer(
             key="orcaslicer",
@@ -308,6 +345,11 @@ def _linux_default_slicers() -> list[Slicer]:
             display="Elegoo Slicer",
             default_profile_dirs=elegoo_dirs if elegoo_dirs else [
                 elegoo_base / "user" / "default"],
+        ),
+        Slicer(
+            key="prusaslicer",
+            display="PrusaSlicer",
+            default_profile_dirs=prusa_dirs if prusa_dirs else [prusa_base],
         ),
     ]
 
@@ -351,6 +393,9 @@ def _windows_default_slicers() -> list[Slicer]:
             creality_dirs = [version_dir]
             break
 
+    prusa_base = appdata / "PrusaSlicer"
+    prusa_dirs = [prusa_base] if prusa_base.exists() else []
+
     return [
         Slicer(
             key="orcaslicer",
@@ -381,6 +426,11 @@ def _windows_default_slicers() -> list[Slicer]:
             display="Elegoo Slicer",
             default_profile_dirs=elegoo_dirs if elegoo_dirs else [
                 elegoo_base / "user" / "default"],
+        ),
+        Slicer(
+            key="prusaslicer",
+            display="PrusaSlicer",
+            default_profile_dirs=prusa_dirs if prusa_dirs else [prusa_base],
         ),
     ]
 

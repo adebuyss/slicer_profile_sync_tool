@@ -21,6 +21,7 @@ from pathlib import Path
 
 from .config import Config
 from .git import REPO_PROFILES_DIR, sha256_file
+from .slicers import SLICER_PROFILE_GLOBS
 
 # Map config keys to proper display names
 SLICER_DISPLAY_NAMES = {
@@ -29,12 +30,26 @@ SLICER_DISPLAY_NAMES = {
     "snapmakerorca": "Snapmaker Orca",
     "crealityprint": "Creality Print",
     "elegooslicer": "Elegoo Slicer",
+    "prusaslicer": "PrusaSlicer",
 }
+
+_DEFAULT_GLOBS = ["*.json"]
+
+
+def _profile_globs(slicer_key: str) -> list[str]:
+    """Return the file glob patterns for a slicer (defaults to *.json)."""
+    return SLICER_PROFILE_GLOBS.get(slicer_key, _DEFAULT_GLOBS)
+
+
+def _rglob_profiles(root: Path, slicer_key: str):
+    """Yield all profile files under *root* matching the slicer's glob patterns."""
+    for pattern in _profile_globs(slicer_key):
+        yield from root.rglob(pattern)
 
 
 def export_from_slicers_to_repo(cfg: Config) -> list[tuple[Path, Path]]:
     """
-    Copy JSON files from slicer profile dirs -> repo/profiles/<slicer>/
+    Copy profile files from slicer profile dirs -> repo/profiles/<slicer>/
     Also deletes files from repo that no longer exist in slicer dirs.
     Returns list of (src, dst) copied.
     """
@@ -52,7 +67,7 @@ def export_from_slicers_to_repo(cfg: Config) -> list[tuple[Path, Path]]:
         for d in dirs:
             if not d.exists():
                 continue
-            for src in d.rglob("*.json"):
+            for src in _rglob_profiles(d, slicer_key):
                 # Preserve relative structure under each configured dir to avoid filename collisions
                 rel = src.relative_to(d)
                 dst = dst_root / rel
@@ -66,7 +81,7 @@ def export_from_slicers_to_repo(cfg: Config) -> list[tuple[Path, Path]]:
 
         # Delete files from repo that no longer exist in slicer
         if dst_root.exists():
-            for repo_file in dst_root.rglob("*.json"):
+            for repo_file in _rglob_profiles(dst_root, slicer_key):
                 if repo_file not in expected_repo_files:
                     repo_file.unlink()
                     # Track deletions as special entries (use None as src to indicate deletion)
@@ -145,7 +160,7 @@ def rebuild_exported_from_git(cfg: Config) -> list[tuple[Path, Path]]:
 
 def import_from_repo_to_slicers(cfg: Config) -> list[tuple[Path, Path]]:
     """
-    Copy JSON files from repo/profiles/<slicer>/ -> slicer profile dirs (into the first configured dir).
+    Copy profile files from repo/profiles/<slicer>/ -> slicer profile dirs (into the first configured dir).
     Returns list of (src, dst) copied.
     """
     copied: list[tuple[Path, Path]] = []
@@ -163,7 +178,7 @@ def import_from_repo_to_slicers(cfg: Config) -> list[tuple[Path, Path]]:
         dst_base = dst_dirs[0]
         dst_base.mkdir(parents=True, exist_ok=True)
 
-        for src in src_root.rglob("*.json"):
+        for src in _rglob_profiles(src_root, slicer_key):
             rel = src.relative_to(src_root)
             dst = dst_base / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -284,7 +299,7 @@ def collect_server_profiles(
                         for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
             dst_base = dst_dirs[0] if dst_dirs else None
 
-        for src in src_root.rglob("*.json"):
+        for src in _rglob_profiles(src_root, slicer_key):
             rel = src.relative_to(src_root)
             profile_type = rel.parts[0].capitalize() if rel.parts else "Other"
 
