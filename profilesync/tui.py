@@ -1087,7 +1087,7 @@ class PullScreen(SyncScreen):
         profiles = collect_server_profiles(cfg, dst_overrides=dst_overrides or None)
         self.sync_app.call_from_thread(self._display_profiles, profiles)
 
-    def _on_select_changed(self, event: Select.Changed) -> None:
+    async def _on_select_changed(self, event: Select.Changed) -> None:
         """Handle destination selector changes."""
         if not self._dest_ready:
             return  # ignore events fired during initial mount
@@ -1103,16 +1103,14 @@ class PullScreen(SyncScreen):
                 dst_overrides=self._dst_overrides or None,
             )
             self._profiles = profiles
-            self._build_profile_list()
+            await self._build_profile_list()
 
-    def _display_profiles(self, profiles: list[dict]) -> None:
+    async def _display_profiles(self, profiles: list[dict]) -> None:
         self._profiles = profiles
 
         # Remove loading message
-        try:
-            self.query_one("#loading").remove()
-        except Exception:
-            pass
+        for widget in self.query("#loading"):
+            await widget.remove()
 
         if not profiles:
             self._restore_stash()
@@ -1134,9 +1132,10 @@ class PullScreen(SyncScreen):
                 label = Text()
                 label.append(f"  Import destination for ", style="dim")
                 label.append(display, style="bold")
-                self.mount(Static(label, id=f"dest-label-{slicer_key}"),
-                           before=footer)
-                self.mount(
+                await self.mount(
+                    Static(label, id=f"dest-label-{slicer_key}"),
+                    before=footer)
+                await self.mount(
                     Select(
                         options,
                         value=current,
@@ -1146,15 +1145,15 @@ class PullScreen(SyncScreen):
                     before=footer,
                 )
 
-        self._build_profile_list()
+        await self._build_profile_list()
         self._dest_ready = True
 
-    def _build_profile_list(self) -> None:
+    async def _build_profile_list(self) -> None:
         """(Re)build the SelectionList based on the current filter."""
-        # Remove existing widgets if rebuilding (query returns all matches)
+        # Remove existing widgets if rebuilding — await to ensure DOM is clean
         for wid in ("#file-list", "#no-results", "#select-status"):
             for widget in self.query(wid):
-                widget.remove()
+                await widget.remove()
 
         # Filter profiles
         if self._show_all:
@@ -1170,7 +1169,7 @@ class PullScreen(SyncScreen):
             msg.append("f", style="bold")
             msg.append(" to show all")
             footer = self.query_one(Footer)
-            self.mount(
+            await self.mount(
                 Static(msg, id="no-results"),
                 before=footer)
             self._update_title()
@@ -1203,10 +1202,10 @@ class PullScreen(SyncScreen):
 
         # Mount widgets dynamically
         footer = self.query_one(Footer)
-        self.mount(
+        await self.mount(
             SelectionList[int](*selections, id="file-list"),
             before=footer)
-        self.mount(
+        await self.mount(
             Static("", id="select-status"),
             before=footer)
 
@@ -1292,10 +1291,10 @@ class PullScreen(SyncScreen):
                 f"Selected items {lo + 1}–{hi + 1}",
                 severity="information")
 
-    def action_toggle_filter(self) -> None:
+    async def action_toggle_filter(self) -> None:
         """Toggle between showing changed/new only vs all profiles."""
         self._show_all = not self._show_all
-        self._build_profile_list()
+        await self._build_profile_list()
 
     def action_show_diff(self) -> None:
         """Show diff for the highlighted profile (server vs local slicer)."""
