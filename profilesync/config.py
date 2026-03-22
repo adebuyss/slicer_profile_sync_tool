@@ -39,6 +39,7 @@ class Config:
     enabled_slicers: list[str]
     slicer_profile_dirs: dict[str, list[str]]  # key -> list of dir paths
     editor_cmd: Optional[str] = None  # e.g. "code --wait" or "vim"
+    import_dest: Optional[dict[str, str]] = None  # slicer_key -> preferred import dir
 
     @staticmethod
     def path() -> Path:
@@ -65,4 +66,5 @@ class Config:
             enabled_slicers=list(payload.get("enabled_slicers", [])),
             slicer_profile_dirs=dict(payload.get("slicer_profile_dirs", {})),
             editor_cmd=payload.get("editor_cmd"),
+            import_dest=payload.get("import_dest"),
         )

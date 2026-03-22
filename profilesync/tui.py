@@ -28,7 +28,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer
 from textual.screen import Screen
-from textual.widgets import Footer, Header, OptionList, SelectionList, Static
+from textual.widgets import Footer, Header, OptionList, Select, SelectionList, Static
 from textual.widgets.option_list import Option
 
 from .config import Config
@@ -1014,6 +1014,8 @@ class PullScreen(SyncScreen):
         self._range_anchor: int | None = None
         self._had_stash: bool = False
         self._show_all: bool = False
+        self._dst_overrides: dict[str, Path] = {}
+        self._multi_dir_slicers: dict[str, list[str]] = {}
 
     def compose(self) -> ComposeResult:
         title = Text()
@@ -1066,8 +1068,39 @@ class PullScreen(SyncScreen):
             self.sync_app.call_from_thread(self.sync_app.pop_screen)
             return
 
-        profiles = collect_server_profiles(cfg)
+        # Detect slicers with multiple configured directories
+        multi_dir: dict[str, list[str]] = {}
+        for slicer_key in cfg.enabled_slicers:
+            dirs = cfg.slicer_profile_dirs.get(slicer_key, [])
+            if len(dirs) > 1:
+                multi_dir[slicer_key] = dirs
+        self._multi_dir_slicers = multi_dir
+
+        # Build destination overrides from saved config or default to first dir
+        dst_overrides: dict[str, Path] = {}
+        if cfg.import_dest:
+            for slicer_key, dest in cfg.import_dest.items():
+                dst_overrides[slicer_key] = Path(dest)
+        self._dst_overrides = dst_overrides
+
+        profiles = collect_server_profiles(cfg, dst_overrides=dst_overrides or None)
         self.sync_app.call_from_thread(self._display_profiles, profiles)
+
+    def _on_select_changed(self, event: Select.Changed) -> None:
+        """Handle destination selector changes."""
+        select_id = event.select.id or ""
+        if not select_id.startswith("dest-"):
+            return
+        slicer_key = select_id[5:]  # strip "dest-" prefix
+        if event.value is not None and event.value != Select.BLANK:
+            self._dst_overrides[slicer_key] = Path(str(event.value))
+            # Reload profiles with new destination to update matches_local
+            profiles = collect_server_profiles(
+                self.sync_app.cfg,
+                dst_overrides=self._dst_overrides or None,
+            )
+            self._profiles = profiles
+            self._build_profile_list()
 
     def _display_profiles(self, profiles: list[dict]) -> None:
         self._profiles = profiles
@@ -1084,6 +1117,31 @@ class PullScreen(SyncScreen):
                 "No profiles found on server", severity="information")
             self.sync_app.pop_screen()
             return
+
+        # Mount destination selectors for slicers with multiple dirs
+        if self._multi_dir_slicers:
+            footer = self.query_one(Footer)
+            for slicer_key, dirs in self._multi_dir_slicers.items():
+                display = SLICER_DISPLAY_NAMES.get(
+                    slicer_key, slicer_key.capitalize())
+                # Determine current selection
+                current = str(self._dst_overrides.get(
+                    slicer_key, Path(dirs[0])))
+                options = [(d, d) for d in dirs]
+                label = Text()
+                label.append(f"  Import destination for ", style="dim")
+                label.append(display, style="bold")
+                self.mount(Static(label, id=f"dest-label-{slicer_key}"),
+                           before=footer)
+                self.mount(
+                    Select(
+                        options,
+                        value=current,
+                        id=f"dest-{slicer_key}",
+                        allow_blank=False,
+                    ),
+                    before=footer,
+                )
 
         self._build_profile_list()
 
@@ -1295,7 +1353,10 @@ class PullScreen(SyncScreen):
     def _execute_pull(self, selected_indices: list[int]) -> None:
         try:
             selected = [self._profiles[i] for i in selected_indices]
-            imported = import_selected_profiles(self.sync_app.cfg, selected)
+            imported = import_selected_profiles(
+                self.sync_app.cfg, selected,
+                dst_overrides=self._dst_overrides or None,
+            )
 
             n = len(imported)
             if n > 0:

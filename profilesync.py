@@ -81,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Also re-select which slicers to sync"
     )
+    reconfig_parser.add_argument(
+        "--dest",
+        action="store_true",
+        help="Set preferred import destination for slicers with multiple directories"
+    )
 
     # config command
     subparsers.add_parser(
