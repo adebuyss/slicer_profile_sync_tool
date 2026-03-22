@@ -24,7 +24,7 @@ import argparse
 import sys
 import textwrap
 
-from profilesync.commands import cmd_config, cmd_init, cmd_sync
+from profilesync.commands import cmd_config, cmd_init, cmd_reconfig, cmd_sync
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
               profilesync init                          # Interactive setup
               profilesync init --remote git@github.com:user/repo.git
               profilesync sync                          # Interactive sync
+              profilesync reconfig                      # Re-detect & pick profile dirs
+              profilesync reconfig --slicers            # Also re-select slicers
               profilesync config                        # Show current config
         """)
     )
@@ -69,6 +71,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Sync profiles between local slicers and server"
     )
 
+    # reconfig command
+    reconfig_parser = subparsers.add_parser(
+        "reconfig",
+        help="Re-detect and reconfigure slicer profile directories"
+    )
+    reconfig_parser.add_argument(
+        "--slicers",
+        action="store_true",
+        help="Also re-select which slicers to sync"
+    )
+
     # config command
     subparsers.add_parser(
         "config",
@@ -86,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_init(args)
         elif args.command == "sync":
             return cmd_sync(args)
+        elif args.command == "reconfig":
+            return cmd_reconfig(args)
         elif args.command == "config":
             return cmd_config(args)
         else:

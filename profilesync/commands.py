@@ -267,6 +267,45 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reconfig(args: argparse.Namespace) -> int:
+    """Re-detect slicer directories and let the user reconfigure paths.
+
+    Loads the existing config, re-scans for profile directories on disk,
+    then lets the user pick which ones to use.  Optionally re-select
+    which slicers are enabled with --slicers.
+    """
+    cfg = Config.load()
+    slicers = get_default_slicers()
+
+    if args.slicers:
+        # Let user re-pick which slicers to sync
+        enabled = interactive_select_slicers(slicers)
+        if enabled is None:
+            print(info("\nAborted. Config unchanged."))
+            return 0
+        if not enabled:
+            print("No slicers selected.")
+            return 2
+    else:
+        enabled = cfg.enabled_slicers
+        # Show what's currently enabled
+        print("Currently enabled slicers:")
+        by_key = {s.key: s for s in slicers}
+        for key in enabled:
+            display = by_key[key].display if key in by_key else key
+            print(f"  {highlight(display)}")
+        print(dim("  (use --slicers to change this selection)\n"))
+
+    paths = interactive_configure_paths(enabled, slicers)
+
+    cfg.enabled_slicers = enabled
+    cfg.slicer_profile_dirs = paths
+    cfg.save()
+
+    print(f"\n{success(get_check_symbol())} Config updated at {Config.path()}")
+    return 0
+
+
 def cmd_sync(args: argparse.Namespace) -> int:
     """Main sync command - launches the interactive TUI."""
     ensure_git_available()
