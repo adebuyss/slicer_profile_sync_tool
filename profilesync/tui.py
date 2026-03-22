@@ -1004,7 +1004,7 @@ class PullScreen(SyncScreen):
         Binding("s", "range_select", "Range"),
         Binding("d", "show_diff", "Diff"),
         Binding("f", "toggle_filter", "Filter"),
-        Binding("enter", "confirm", "Confirm"),
+        Binding("enter", "confirm", "Confirm", priority=True),
         Binding("escape", "go_back", "Back"),
     ]
 
@@ -1336,7 +1336,22 @@ class PullScreen(SyncScreen):
             right_label="server",
         ))
 
+    def _select_is_focused(self) -> bool:
+        """Check if a destination Select dropdown is currently focused."""
+        focused = self.app.focused
+        if focused is None:
+            return False
+        # Check the focused widget or any ancestor for a dest- Select
+        widget = focused
+        while widget is not None:
+            if isinstance(widget, Select) and widget.id and widget.id.startswith("dest-"):
+                return True
+            widget = widget.parent
+        return False
+
     def action_confirm(self) -> None:
+        if self._select_is_focused():
+            return  # let the Select widget handle Enter
         try:
             selected = list(self.query_one(SelectionList).selected)
         except Exception:
@@ -1347,6 +1362,8 @@ class PullScreen(SyncScreen):
         self._execute_pull(selected)
 
     def action_go_back(self) -> None:
+        if self._select_is_focused():
+            return  # let the Select widget handle Escape
         self._restore_stash()
         self.sync_app.pop_screen()
 
