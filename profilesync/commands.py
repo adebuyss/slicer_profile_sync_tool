@@ -24,6 +24,7 @@ from pathlib import Path
 from .config import Config
 from .git import (
     clone_or_open_repo,
+    configure_git_user,
     ensure_git_available,
     git_has_commits,
     guard_not_dev_repo,
@@ -230,14 +231,27 @@ def cmd_init(args: argparse.Namespace) -> int:
             editor_cmd = git_editor
             print(f"  {success(get_check_symbol())} {labels[choice]}")
 
+    # Git user identity for commits
+    print(f"\nGit identity for sync commits:")
+    default_name = os.environ.get("USER") or os.environ.get("USERNAME") or ""
+    git_user_name = input(
+        f"  Name [{default_name}]: ").strip() or default_name
+    git_user_email = input("  Email: ").strip() or None
+
     cfg = Config(
         github_remote=remote,
         repo_dir=repo_dir,
         enabled_slicers=enabled,
         slicer_profile_dirs=paths,
         editor_cmd=editor_cmd,
+        git_user_name=git_user_name or None,
+        git_user_email=git_user_email,
     )
     cfg.save()
+
+    # Apply git identity to the sync repo
+    configure_git_user(repo_dir, cfg.git_user_name, cfg.git_user_email)
+
     print(f"\nSaved config to {Config.path()}")
     print(f"Repo directory: {repo_dir}")
     print("Next: run `profilesync sync`")
@@ -324,6 +338,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
     cfg = Config.load()
     # Check if repo is empty and initialize if needed
     clone_or_open_repo(cfg.repo_dir, cfg.github_remote)
+    configure_git_user(cfg.repo_dir, cfg.git_user_name, cfg.git_user_email)
     if not git_has_commits(cfg.repo_dir):
         initialize_empty_repo(cfg.repo_dir, cfg.github_remote)
 
