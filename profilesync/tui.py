@@ -28,7 +28,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer
 from textual.screen import Screen
-from textual.widgets import Footer, Header, OptionList, SelectionList, Static
+from textual.widgets import Footer, Header, OptionList, Select, SelectionList, Static
 from textual.widgets.option_list import Option
 
 from .config import Config
@@ -998,13 +998,13 @@ class PullScreen(SyncScreen):
     """Load server profiles, let user select, and import."""
 
     BINDINGS = [
-        Binding("a", "select_all", "All"),
+        Binding("a", "confirm", "Accept"),
+        Binding("x", "select_all", "All"),
         Binding("n", "select_none", "None"),
         Binding("i", "invert", "Invert"),
         Binding("s", "range_select", "Range"),
         Binding("d", "show_diff", "Diff"),
         Binding("f", "toggle_filter", "Filter"),
-        Binding("enter", "confirm", "Confirm", priority=True),
         Binding("escape", "go_back", "Back"),
     ]
 
@@ -1014,6 +1014,9 @@ class PullScreen(SyncScreen):
         self._range_anchor: int | None = None
         self._had_stash: bool = False
         self._show_all: bool = False
+        self._dst_overrides: dict[str, Path] = {}
+        self._multi_dir_slicers: dict[str, list[str]] = {}
+        self._dest_ready: bool = False  # guard against Select.Changed during mount
 
     def compose(self) -> ComposeResult:
         title = Text()
@@ -1066,17 +1069,48 @@ class PullScreen(SyncScreen):
             self.sync_app.call_from_thread(self.sync_app.pop_screen)
             return
 
-        profiles = collect_server_profiles(cfg)
+        # Detect slicers with multiple configured directories
+        multi_dir: dict[str, list[str]] = {}
+        for slicer_key in cfg.enabled_slicers:
+            dirs = cfg.slicer_profile_dirs.get(slicer_key, [])
+            if len(dirs) > 1:
+                multi_dir[slicer_key] = dirs
+        self._multi_dir_slicers = multi_dir
+
+        # Build destination overrides from saved config or default to first dir
+        dst_overrides: dict[str, Path] = {}
+        if cfg.import_dest:
+            for slicer_key, dest in cfg.import_dest.items():
+                dst_overrides[slicer_key] = Path(dest)
+        self._dst_overrides = dst_overrides
+
+        profiles = collect_server_profiles(cfg, dst_overrides=dst_overrides or None)
         self.sync_app.call_from_thread(self._display_profiles, profiles)
 
-    def _display_profiles(self, profiles: list[dict]) -> None:
+    async def _on_select_changed(self, event: Select.Changed) -> None:
+        """Handle destination selector changes."""
+        if not self._dest_ready:
+            return  # ignore events fired during initial mount
+        select_id = event.select.id or ""
+        if not select_id.startswith("dest-"):
+            return
+        slicer_key = select_id[5:]  # strip "dest-" prefix
+        if event.value is not None and event.value != Select.BLANK:
+            self._dst_overrides[slicer_key] = Path(str(event.value))
+            # Reload profiles with new destination to update matches_local
+            profiles = collect_server_profiles(
+                self.sync_app.cfg,
+                dst_overrides=self._dst_overrides or None,
+            )
+            self._profiles = profiles
+            await self._build_profile_list()
+
+    async def _display_profiles(self, profiles: list[dict]) -> None:
         self._profiles = profiles
 
         # Remove loading message
-        try:
-            self.query_one("#loading").remove()
-        except Exception:
-            pass
+        for widget in self.query("#loading"):
+            await widget.remove()
 
         if not profiles:
             self._restore_stash()
@@ -1085,16 +1119,41 @@ class PullScreen(SyncScreen):
             self.sync_app.pop_screen()
             return
 
-        self._build_profile_list()
+        # Mount destination selectors for slicers with multiple dirs
+        if self._multi_dir_slicers:
+            footer = self.query_one(Footer)
+            for slicer_key, dirs in self._multi_dir_slicers.items():
+                display = SLICER_DISPLAY_NAMES.get(
+                    slicer_key, slicer_key.capitalize())
+                # Determine current selection
+                current = str(self._dst_overrides.get(
+                    slicer_key, Path(dirs[0])))
+                options = [(d, d) for d in dirs]
+                label = Text()
+                label.append(f"  Import destination for ", style="dim")
+                label.append(display, style="bold")
+                await self.mount(
+                    Static(label, id=f"dest-label-{slicer_key}"),
+                    before=footer)
+                await self.mount(
+                    Select(
+                        options,
+                        value=current,
+                        id=f"dest-{slicer_key}",
+                        allow_blank=False,
+                    ),
+                    before=footer,
+                )
 
-    def _build_profile_list(self) -> None:
+        await self._build_profile_list()
+        self._dest_ready = True
+
+    async def _build_profile_list(self) -> None:
         """(Re)build the SelectionList based on the current filter."""
-        # Remove existing widgets if rebuilding
+        # Remove existing widgets if rebuilding — await to ensure DOM is clean
         for wid in ("#file-list", "#no-results", "#select-status"):
-            try:
-                self.query_one(wid).remove()
-            except Exception:
-                pass
+            for widget in self.query(wid):
+                await widget.remove()
 
         # Filter profiles
         if self._show_all:
@@ -1110,7 +1169,7 @@ class PullScreen(SyncScreen):
             msg.append("f", style="bold")
             msg.append(" to show all")
             footer = self.query_one(Footer)
-            self.mount(
+            await self.mount(
                 Static(msg, id="no-results"),
                 before=footer)
             self._update_title()
@@ -1143,10 +1202,10 @@ class PullScreen(SyncScreen):
 
         # Mount widgets dynamically
         footer = self.query_one(Footer)
-        self.mount(
+        await self.mount(
             SelectionList[int](*selections, id="file-list"),
             before=footer)
-        self.mount(
+        await self.mount(
             Static("", id="select-status"),
             before=footer)
 
@@ -1232,10 +1291,10 @@ class PullScreen(SyncScreen):
                 f"Selected items {lo + 1}–{hi + 1}",
                 severity="information")
 
-    def action_toggle_filter(self) -> None:
+    async def action_toggle_filter(self) -> None:
         """Toggle between showing changed/new only vs all profiles."""
         self._show_all = not self._show_all
-        self._build_profile_list()
+        await self._build_profile_list()
 
     def action_show_diff(self) -> None:
         """Show diff for the highlighted profile (server vs local slicer)."""
@@ -1295,7 +1354,10 @@ class PullScreen(SyncScreen):
     def _execute_pull(self, selected_indices: list[int]) -> None:
         try:
             selected = [self._profiles[i] for i in selected_indices]
-            imported = import_selected_profiles(self.sync_app.cfg, selected)
+            imported = import_selected_profiles(
+                self.sync_app.cfg, selected,
+                dst_overrides=self._dst_overrides or None,
+            )
 
             n = len(imported)
             if n > 0:

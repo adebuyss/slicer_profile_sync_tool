@@ -244,10 +244,18 @@ def group_by_slicer_and_type(files: list[tuple[Path, Path]], cfg: Config, repo_d
     return by_slicer
 
 
-def collect_server_profiles(cfg: Config) -> list[dict]:
+def collect_server_profiles(
+    cfg: Config,
+    dst_overrides: dict[str, Path] | None = None,
+) -> list[dict]:
     """
     Collect all profiles available on the server (in the repo) and flag
     whether each one already exists locally in the slicer folder.
+
+    Args:
+        cfg: Config object
+        dst_overrides: Optional mapping of slicer_key -> import directory.
+            When provided, uses the override instead of dst_dirs[0].
 
     Returns a list of dicts:
         {
@@ -268,9 +276,13 @@ def collect_server_profiles(cfg: Config) -> list[dict]:
         if not src_root.exists():
             continue
 
-        dst_dirs = [Path(p)
-                    for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
-        dst_base = dst_dirs[0] if dst_dirs else None
+        # Use override if provided, otherwise fall back to first configured dir
+        if dst_overrides and slicer_key in dst_overrides:
+            dst_base = dst_overrides[slicer_key]
+        else:
+            dst_dirs = [Path(p)
+                        for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
+            dst_base = dst_dirs[0] if dst_dirs else None
 
         for src in src_root.rglob("*.json"):
             rel = src.relative_to(src_root)
@@ -294,13 +306,18 @@ def collect_server_profiles(cfg: Config) -> list[dict]:
     return results
 
 
-def import_selected_profiles(cfg: Config, selected: list[dict]) -> list[tuple[Path, Path]]:
+def import_selected_profiles(
+    cfg: Config,
+    selected: list[dict],
+    dst_overrides: dict[str, Path] | None = None,
+) -> list[tuple[Path, Path]]:
     """
     Import only the selected profiles from repo to slicer dirs.
 
     Args:
         cfg: Config object
         selected: list of profile dicts as returned by collect_server_profiles()
+        dst_overrides: Optional mapping of slicer_key -> import directory.
 
     Returns list of (src, dst) actually copied.
     """
@@ -311,11 +328,14 @@ def import_selected_profiles(cfg: Config, selected: list[dict]) -> list[tuple[Pa
         src = entry["repo_path"]
         rel = entry["rel"]
 
-        dst_dirs = [Path(p)
-                    for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
-        if not dst_dirs:
-            continue
-        dst_base = dst_dirs[0]
+        if dst_overrides and slicer_key in dst_overrides:
+            dst_base = dst_overrides[slicer_key]
+        else:
+            dst_dirs = [Path(p)
+                        for p in cfg.slicer_profile_dirs.get(slicer_key, [])]
+            if not dst_dirs:
+                continue
+            dst_base = dst_dirs[0]
         dst = dst_base / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
 

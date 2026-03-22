@@ -262,7 +262,8 @@ def cmd_reconfig(args: argparse.Namespace) -> int:
 
     Loads the existing config, re-scans for profile directories on disk,
     then lets the user pick which ones to use.  Optionally re-select
-    which slicers are enabled with --slicers.
+    which slicers are enabled with --slicers or set import destinations
+    with --dest.
     """
     cfg = Config.load()
     slicers = get_default_slicers()
@@ -290,6 +291,27 @@ def cmd_reconfig(args: argparse.Namespace) -> int:
 
     cfg.enabled_slicers = enabled
     cfg.slicer_profile_dirs = paths
+
+    # Import destination selection
+    if args.dest:
+        from .sync import SLICER_DISPLAY_NAMES
+        import_dest: dict[str, str] = {}
+        for key in enabled:
+            dirs = paths.get(key, [])
+            if len(dirs) <= 1:
+                continue
+            display = SLICER_DISPLAY_NAMES.get(key, key.capitalize())
+            print()
+            idx = pick_one(
+                f"Import destination for {highlight(display)}:",
+                dirs,
+            )
+            if idx is not None:
+                import_dest[key] = dirs[idx]
+                print(f"  {success(get_check_symbol())} {dirs[idx]}")
+        if import_dest:
+            cfg.import_dest = import_dest
+
     cfg.save()
 
     print(f"\n{success(get_check_symbol())} Config updated at {Config.path()}")

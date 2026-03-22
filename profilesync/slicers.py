@@ -86,11 +86,16 @@ _MACOS_APP_NAMES: dict[str, list[str]] = {
     "elegooslicer": ["ElegooSlicer.app"],
 }
 
-# Flatpak app IDs (Linux only)
-_FLATPAK_IDS: dict[str, tuple[str, str]] = {
-    # slicer_key: (flatpak_app_id, config_folder_name)
-    "orcaslicer": ("io.github.softfever.OrcaSlicer", "OrcaSlicer"),
-    "bambustudio": ("com.bambulab.BambuStudio", "BambuStudio"),
+# Flatpak app IDs (Linux only) — multiple IDs per slicer supported
+_FLATPAK_IDS: dict[str, list[tuple[str, str]]] = {
+    # slicer_key: [(flatpak_app_id, config_folder_name), ...]
+    "orcaslicer": [
+        ("io.github.orcaslicer.OrcaSlicer", "OrcaSlicer"),
+        ("io.github.softfever.OrcaSlicer", "OrcaSlicer"),
+    ],
+    "bambustudio": [
+        ("com.bambulab.BambuStudio", "BambuStudio"),
+    ],
 }
 
 
@@ -141,12 +146,12 @@ def _detect_data_dir(slicer_key: str) -> list[Path]:
 
 def _detect_flatpak_dirs(slicer_key: str) -> list[Path]:
     """Detect profile dirs inside Flatpak sandboxed config."""
-    info = _FLATPAK_IDS.get(slicer_key)
-    if not info:
-        return []
-    app_id, config_name = info
-    flatpak_base = Path.home() / ".var" / "app" / app_id / "config" / config_name
-    return _detect_user_dirs(flatpak_base)
+    entries = _FLATPAK_IDS.get(slicer_key, [])
+    all_dirs: list[Path] = []
+    for app_id, config_name in entries:
+        flatpak_base = Path.home() / ".var" / "app" / app_id / "config" / config_name
+        all_dirs.extend(_detect_user_dirs(flatpak_base))
+    return all_dirs
 
 
 def _detect_creality_version(app_support: Path) -> list[Path]:
