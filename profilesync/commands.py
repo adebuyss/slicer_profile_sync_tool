@@ -43,31 +43,23 @@ from .ui import (
     get_check_symbol,
     highlight,
     info,
+    pick_many,
+    pick_one,
     success,
 )
 
 
 def interactive_select_slicers(slicers: list[Slicer]) -> list[str] | None:
     """Interactively select which slicers to enable. Returns None if user quits."""
-    print("Select slicers to sync (comma-separated numbers):")
-    for i, s in enumerate(slicers, start=1):
-        print(f"  {dim(str(i) + ')')} {highlight(s.display)}")
-    print(f"  {dim('Q)')} Quit")
-    raw = input("Selection: ").strip()
-    if not raw:
-        return []
-    if raw.lower() == 'q':
+    labels = [s.display for s in slicers]
+    selected = pick_many("Select slicers to sync:", labels)
+    if selected is None:
         return None
-    idxs = set()
-    for part in raw.split(","):
-        part = part.strip()
-        if part.isdigit():
-            idxs.add(int(part))
-    chosen = []
-    for i, s in enumerate(slicers, start=1):
-        if i in idxs:
-            chosen.append(s.key)
-    return chosen
+    if not selected:
+        return []
+    chosen_names = [labels[i] for i in selected]
+    print(f"  {success(get_check_symbol())} {', '.join(chosen_names)}")
+    return [slicers[i].key for i in selected]
 
 
 def interactive_configure_paths(enabled: list[str], slicers: list[Slicer]) -> dict[str, list[str]]:
@@ -107,41 +99,48 @@ def interactive_configure_paths(enabled: list[str], slicers: list[Slicer]) -> di
                 result[key] = [raw]
             continue
 
-        # --- Multiple directories found – let the user choose ---
-        print(f"\n{highlight(s.display)}: Found {len(dirs)} profile directories:")
-        for i, d in enumerate(dirs, 1):
+        # --- Multiple directories found – interactive picker ---
+        labels = []
+        for d in dirs:
             exists_marker = success(
                 get_check_symbol()) if d.exists() else error("X")
-            print(f"  {dim(str(i) + ')')} [{exists_marker}] {d}")
-        custom_idx = len(dirs) + 1
-        all_idx = len(dirs) + 2
-        print(f"  {dim(str(custom_idx) + ')')} Enter a custom path")
-        print(f"  {dim(str(all_idx) + ')')} All of the above")
-        print(f"  Select directories (comma-separated numbers, "
-              f"or press {highlight('[ENTER]')} for all):")
+            labels.append(f"[{exists_marker}] {d}")
+        labels.append("Enter a custom path...")
+        custom_idx = len(labels) - 1
 
-        raw = input("> ").strip()
+        # Pre-check all real dirs, leave custom unchecked
+        checked = [True] * len(dirs) + [False]
 
-        # Default / "all" selection
-        if not raw or raw == str(all_idx):
-            result[key] = [str(d) for d in dirs]
+        print()  # spacing
+        selected = pick_many(
+            f"{highlight(s.display)}: Select profile directories:",
+            labels,
+            checked=checked,
+        )
+
+        if selected is None:
+            # Cancelled — default to first dir
+            result[key] = [str(dirs[0])]
+            print(f"  {dim('(using default)')}")
             continue
 
-        # Parse comma-separated choices
-        selected: list[str] = []
-        for part in raw.split(","):
-            part = part.strip()
-            if not part.isdigit():
-                continue
-            idx = int(part)
-            if 1 <= idx <= len(dirs):
-                selected.append(str(dirs[idx - 1]))
-            elif idx == custom_idx:
-                custom = input("  Path: ").strip()
-                if custom:
-                    selected.append(custom)
+        chosen: list[str] = []
+        needs_custom = False
+        for i in selected:
+            if i == custom_idx:
+                needs_custom = True
+            elif i < len(dirs):
+                chosen.append(str(dirs[i]))
 
-        result[key] = selected if selected else [str(dirs[0])]
+        if needs_custom:
+            custom = input("  Enter custom path: ").strip()
+            if custom:
+                chosen.append(custom)
+
+        result[key] = chosen if chosen else [str(dirs[0])]
+
+        n_chosen = len(result[key])
+        print(f"  {success(get_check_symbol())} {n_chosen} director{'y' if n_chosen == 1 else 'ies'} selected")
 
     return result
 
@@ -200,9 +199,6 @@ def cmd_init(args: argparse.Namespace) -> int:
     if args.editor:
         editor_cmd = args.editor
     else:
-        print("\nSelect editor for conflict resolution:")
-
-        # Get system default editor
         git_editor = os.environ.get("GIT_EDITOR") or os.environ.get("EDITOR")
 
         editor_choices = [
@@ -212,33 +208,27 @@ def cmd_init(args: argparse.Namespace) -> int:
             ("code --wait", "VS Code"),
         ]
 
-        for i, (cmd, name) in enumerate(editor_choices, start=1):
-            print(f"  {dim(str(i) + ')')} {name}")
-        print(f"  {dim(str(len(editor_choices) + 1) + ')')} Custom (enter manually)")
-
+        labels = [name for _, name in editor_choices]
+        custom_idx = len(labels)
+        labels.append("Custom (enter manually)")
         if git_editor:
-            print(
-                f"  {dim(str(len(editor_choices) + 2) + ')')} Git default editor ({git_editor})")
+            labels.append(f"Git default editor ({git_editor})")
         else:
-            print(f"  {dim(str(len(editor_choices) + 2) + ')')} Git default editor")
-        print(f"  {dim('Q)')} Quit")
+            labels.append("Git default editor")
 
-        choice = input(f"Selection [1]: ").strip() or "1"
+        choice = pick_one("\nSelect editor for conflict resolution:", labels)
 
-        if choice.lower() == 'q':
+        if choice is None:
             print(info("\nAborted. No changes were made to remote or local files."))
             return 0
-        elif choice.isdigit():
-            idx = int(choice)
-            if 1 <= idx <= len(editor_choices):
-                editor_cmd = editor_choices[idx - 1][0]
-            elif idx == len(editor_choices) + 1:
-                editor_cmd = input("Enter editor command: ").strip() or None
-            else:
-                # User chose "Git default editor" - use system default if available, otherwise None
-                editor_cmd = git_editor
+        elif choice < len(editor_choices):
+            editor_cmd = editor_choices[choice][0]
+            print(f"  {success(get_check_symbol())} {labels[choice]}")
+        elif choice == custom_idx:
+            editor_cmd = input("  Enter editor command: ").strip() or None
         else:
-            editor_cmd = None
+            editor_cmd = git_editor
+            print(f"  {success(get_check_symbol())} {labels[choice]}")
 
     cfg = Config(
         github_remote=remote,
