@@ -71,29 +71,78 @@ def interactive_select_slicers(slicers: list[Slicer]) -> list[str] | None:
 
 
 def interactive_configure_paths(enabled: list[str], slicers: list[Slicer]) -> dict[str, list[str]]:
-    """Configure profile directories for each enabled slicer."""
+    """Configure profile directories for each enabled slicer.
+
+    When multiple directories are discovered (e.g. native + Flatpak +
+    portable data_dir), the user is shown a numbered list and can pick
+    one or more entries (comma-separated) or enter a custom path.
+    """
     by_key = {s.key: s for s in slicers}
     result: dict[str, list[str]] = {}
+
     for key in enabled:
         s = by_key[key]
-        # Use the first detected directory or fallback
-        default_dir = s.default_profile_dirs[0] if s.default_profile_dirs else None
+        dirs = s.default_profile_dirs
 
-        if default_dir:
+        # --- No directories found ---
+        if not dirs:
+            print(f"\n{highlight(s.display)}: (No directory auto-detected)")
+            print("  Enter the profile directory path:")
+            raw = input("> ").strip()
+            result[key] = [raw] if raw else []
+            continue
+
+        # --- Exactly one directory found (original behaviour) ---
+        if len(dirs) == 1:
+            d = dirs[0]
             exists_marker = success(
-                get_check_symbol()) if default_dir.exists() else error("X")
-            print(f"\n{highlight(s.display)}: [{exists_marker}] {default_dir}")
+                get_check_symbol()) if d.exists() else error("X")
+            print(f"\n{highlight(s.display)}: [{exists_marker}] {d}")
             print(
                 f"  Press {highlight('[ENTER]')} to use this directory, or enter a custom path:")
-        else:
-            print(f"\n{s.display}: (No directory auto-detected)")
-            print("  Enter the profile directory path:")
+            raw = input("> ").strip()
+            if not raw:
+                result[key] = [str(d)]
+            else:
+                result[key] = [raw]
+            continue
+
+        # --- Multiple directories found – let the user choose ---
+        print(f"\n{highlight(s.display)}: Found {len(dirs)} profile directories:")
+        for i, d in enumerate(dirs, 1):
+            exists_marker = success(
+                get_check_symbol()) if d.exists() else error("X")
+            print(f"  {dim(str(i) + ')')} [{exists_marker}] {d}")
+        custom_idx = len(dirs) + 1
+        all_idx = len(dirs) + 2
+        print(f"  {dim(str(custom_idx) + ')')} Enter a custom path")
+        print(f"  {dim(str(all_idx) + ')')} All of the above")
+        print(f"  Select directories (comma-separated numbers, "
+              f"or press {highlight('[ENTER]')} for all):")
 
         raw = input("> ").strip()
-        if not raw:
-            result[key] = [str(default_dir)] if default_dir else []
-        else:
-            result[key] = [raw]
+
+        # Default / "all" selection
+        if not raw or raw == str(all_idx):
+            result[key] = [str(d) for d in dirs]
+            continue
+
+        # Parse comma-separated choices
+        selected: list[str] = []
+        for part in raw.split(","):
+            part = part.strip()
+            if not part.isdigit():
+                continue
+            idx = int(part)
+            if 1 <= idx <= len(dirs):
+                selected.append(str(dirs[idx - 1]))
+            elif idx == custom_idx:
+                custom = input("  Path: ").strip()
+                if custom:
+                    selected.append(custom)
+
+        result[key] = selected if selected else [str(dirs[0])]
+
     return result
 
 

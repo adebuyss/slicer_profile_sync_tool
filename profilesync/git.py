@@ -161,6 +161,8 @@ def git_pull_rebase(repo_dir: Path) -> None:
             if result.returncode != 0:
                 # Stash pop failed (likely due to conflicts) - drop the stash
                 # The files are already in the working directory from the pull
+                print("Warning: could not restore stashed changes after rebase. "
+                      "Some uncommitted changes may have been lost.")
                 run(["git", "stash", "drop"], cwd=repo_dir, check=False)
     else:
         # No uncommitted changes, safe to rebase
@@ -349,7 +351,11 @@ def git_commit_if_needed(repo_dir: Path, message: str) -> bool:
 
 def git_push(repo_dir: Path) -> None:
     """Push to remote."""
-    run(["git", "push"], cwd=repo_dir)
+    # Use -u to set upstream tracking on first push
+    result = run(["git", "push"], cwd=repo_dir, check=False)
+    if result.returncode != 0:
+        # Likely no upstream set yet; try with -u
+        run(["git", "push", "-u", "origin", "main"], cwd=repo_dir)
 
 
 def git_list_commits(repo_dir: Path, limit: int = 20) -> list[str]:
