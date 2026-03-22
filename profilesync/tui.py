@@ -1004,7 +1004,7 @@ class PullScreen(SyncScreen):
         Binding("s", "range_select", "Range"),
         Binding("d", "show_diff", "Diff"),
         Binding("f", "toggle_filter", "Filter"),
-        Binding("enter", "confirm", "Confirm", priority=True),
+        Binding("enter", "confirm", "Confirm"),
         Binding("escape", "go_back", "Back"),
     ]
 
