@@ -1016,6 +1016,7 @@ class PullScreen(SyncScreen):
         self._show_all: bool = False
         self._dst_overrides: dict[str, Path] = {}
         self._multi_dir_slicers: dict[str, list[str]] = {}
+        self._dest_ready: bool = False  # guard against Select.Changed during mount
 
     def compose(self) -> ComposeResult:
         title = Text()
@@ -1088,6 +1089,8 @@ class PullScreen(SyncScreen):
 
     def _on_select_changed(self, event: Select.Changed) -> None:
         """Handle destination selector changes."""
+        if not self._dest_ready:
+            return  # ignore events fired during initial mount
         select_id = event.select.id or ""
         if not select_id.startswith("dest-"):
             return
@@ -1144,6 +1147,7 @@ class PullScreen(SyncScreen):
                 )
 
         self._build_profile_list()
+        self._dest_ready = True
 
     def _build_profile_list(self) -> None:
         """(Re)build the SelectionList based on the current filter."""
